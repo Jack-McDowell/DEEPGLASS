@@ -1,0 +1,13 @@
+.vs/
+build/
+artifacts/
+packages/
+external/
+vcpkg/
+*.user
+*.filters
+*.cache
+*.pdb
+*.idb
+*.bak
+*.lib

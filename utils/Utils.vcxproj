@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <ItemDefinitionGroup>
+    <BuildLog>
+      <Path>$(SolutionDir)build\$(PlatformTarget)\$(Configuration)\$(MSBuildProjectName).log</Path>
+    </BuildLog>
+    <ClCompile>
+      <RuntimeLibrary Condition="'$(Configuration)'=='Debug'">MultiThreadedDebug</RuntimeLibrary>
+    </ClCompile>
+    <ClCompile>
+      <RuntimeLibrary Condition="'$(Configuration)'=='Release'">MultiThreaded</RuntimeLibrary>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClInclude Include="headers\common\DynamicLinker.h" />
+    <ClInclude Include="headers\common\StringUtils.h" />
+    <ClInclude Include="headers\common\Utils.h" />
+    <ClInclude Include="headers\common\wrappers.hpp" />
+    <ClInclude Include="headers\util\configurations\Registry.h" />
+    <ClInclude Include="headers\util\configurations\RegistryValue.h" />
+    <ClInclude Include="headers\util\DynamicLinker.h" />
+    <ClInclude Include="headers\util\filesystem\FileSystem.h" />
+    <ClInclude Include="headers\util\log\CLISink.h" />
+    <ClInclude Include="headers\util\log\DebugSink.h" />
+    <ClInclude Include="headers\util\log\HuntLogMessage.h" />
+    <ClInclude Include="headers\util\log\Log.h" />
+    <ClInclude Include="headers\util\log\Loggable.h" />
+    <ClInclude Include="headers\util\log\LogLevel.h" />
+    <ClInclude Include="headers\util\log\LogSink.h" />
+    <ClInclude Include="headers\util\log\ServerSink.h" />
+    <ClInclude Include="headers\util\log\XMLSink.h" />
+    <ClInclude Include="headers\util\pe\Export_Section.h" />
+    <ClInclude Include="headers\util\pe\Image_Loader.h" />
+    <ClInclude Include="headers\util\pe\Import_Section.h" />
+    <ClInclude Include="headers\util\pe\PE_Image.h" />
+    <ClInclude Include="headers\util\pe\PE_Section.h" />
+    <ClInclude Include="headers\util\pe\Relocation_Section.h" />
+    <ClInclude Include="headers\util\pe\Resource_Section.h" />
+    <ClInclude Include="headers\util\processes\PERemover.h" />
+    <ClInclude Include="headers\util\processes\ProcessChecker.h" />
+    <ClInclude Include="headers\util\processes\ProcessUtils.h" />
+    <ClInclude Include="headers\util\Promise.h" />
+    <ClInclude Include="headers\util\StringUtils.h" />
+    <ClInclude Include="headers\util\ThreadPool.h" />
+    <ClInclude Include="headers\util\Utils.h" />
+    <ClInclude Include="headers\util\wrappers.hpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="src\configurations\RegistryKey.cpp" />
+    <ClCompile Include="src\configurations\RegistryValue.cpp" />
+    <ClCompile Include="src\DynamicLinker.cpp" />
+    <ClCompile Include="src\filesystem\FileSystem.cpp" />
+    <ClCompile Include="src\log\CLISink.cpp" />
+    <ClCompile Include="src\log\DebugSink.cpp" />
+    <ClCompile Include="src\log\Log.cpp" />
+    <ClCompile Include="src\log\LogLevel.cpp" />
+    <ClCompile Include="src\permissions\permissions.cpp" />
+    <ClCompile Include="src\pe\Image_Loader.cpp" />
+    <ClCompile Include="src\processes\PERemover.cpp" />
+    <ClCompile Include="src\processes\ProcessUtils.cpp" />
+    <ClCompile Include="src\StringUtils.cpp" />
+    <ClCompile Include="src\ThreadPool.cpp" />
+    <ClCompile Include="src\Utils.cpp" />
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{2B94579C-50FF-419C-9597-5DB57FC0C0DD}</ProjectGuid>
+    <RootNamespace>Utils</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>StaticLibrary</ConfigurationType>
+    <PlatformToolset>v141_xp</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="..\Project Configurations\buildsettings.props" />
+    <Import Project="..\Project Configurations\buildstructure.props" />
+  </ImportGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
