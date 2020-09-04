@@ -26,7 +26,7 @@ namespace DEEPGLASS {
 		fileOperation.pFrom = &terminated[0];
 		fileOperation.fFlags = FOF_NO_UI | FOF_NOCONFIRMATION;
 
-		return SHFileOperationW(&fileOperation);
+		return !SHFileOperationW(&fileOperation);
 	}
 
 	bool InitializeDirectory(){
@@ -40,14 +40,20 @@ namespace DEEPGLASS {
 		if(!CreateDirectoryW(L".\\DEEPGLASS-Results", nullptr)){
 			return false;
 		}
+
+		if(!CreateDirectoryW(L".\\DEEPGLASS-Results\\Files", nullptr)){
+			return false;
+		}
+
+		return true;
 	}
 
 	void MoveFiles(_In_ const std::unordered_set<std::wstring>& notsigned){
 		for(const auto& path : notsigned){
 			auto last{ path.find_last_of(L"\\/") };
 			auto name{ path.substr(last == std::wstring::npos ? 0 : last + 1) };
-			if(!CopyFileW(path.c_str(), (L".\\DEEPGLASS-Results\\" + name).c_str(), false)){
-				std::wcerr << L"Failed to write copy at " << path << " to .\\DEEPGLASS-Results\\" << name << std::endl;
+			if(!CopyFileW(path.c_str(), (L".\\DEEPGLASS-Results\\Files\\" + name).c_str(), false)){
+				std::wcerr << L"Failed to copy file at " << path << " to .\\DEEPGLASS-Results\\Files\\" << name << std::endl;
 			}
 		}
 	}

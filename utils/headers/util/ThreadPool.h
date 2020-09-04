@@ -83,7 +83,7 @@ public:
 	Promise<T> RequestPromise(
 		IN CONST std::function<T()>& function
 	){
-		Promise<T> promise{ false };
+		Promise<T> promise{};
 		EnqueueTask([promise, function]() mutable {
 			try {
 				promise.Fufill(function());

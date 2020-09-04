@@ -29,9 +29,9 @@ void RunRegistryChecks(_Out_ std::unordered_set<std::wstring>& paths){
 	}
 
 	std::wofstream unsignedfile(L".\\DEEPGLASS-Results\\Registry-Unsigned-Files.txt");
-	for(const auto& pair : notsigned){
+	for(auto pair : notsigned){
 		unsignedfile << L"File " << pair.first << L" is unsigned; referenced by:" << std::endl;
-		for(const auto& value : pair.second){
+		for(auto value : pair.second){
 			unsignedfile << "\t" << value.key.GetName() << L": " << value.GetPrintableName() << std::endl;
 		}
 		paths.emplace(pair.first);
@@ -63,11 +63,21 @@ void RunFileChecks(_Out_ std::unordered_set<std::wstring>& paths){
 	for(const auto& directory : locations){
 		FileSystem::Folder folder{ ExpandEnvStringsW(directory) };
 		auto files{ folder.GetFiles() };
-		for(const auto& file : files){
-			if(DEEPGLASS::IsFiletypePE(file.GetFilePath()) && !file.GetFileSigned()){
-				paths.emplace(file);
-				unsignedfile << L"File " << file.GetFilePath() << L" is unsigned" << std::endl;
-			}
+		std::vector<Promise<bool>> promises{};
+		CriticalSection hGuard{};
+		for(const auto file : files){
+			promises.emplace_back(
+				ThreadPool::GetInstance().RequestPromise<bool>([file, &hGuard, &unsignedfile, &paths](){
+					if(DEEPGLASS::IsFiletypePE(file.GetFilePath()) && !file.GetFileSigned()){
+						paths.emplace(file.GetFilePath());
+						unsignedfile << L"File " << file.GetFilePath() << L" is unsigned" << std::endl;
+					}
+					return true;
+				})
+			);
+		}
+		for(const auto& promise : promises){
+			promise.GetValue();
 		}
 	}
 }

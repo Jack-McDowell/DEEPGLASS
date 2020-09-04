@@ -31,6 +31,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\DEEPGLASS-EnumRegistry.cpp" />
+    <ClCompile Include="src\DEEPGLASS-FileCollector.cpp" />
     <ClCompile Include="src\DEEPGLASS-Filtering.cpp" />
     <ClCompile Include="src\DEEPGLASS.cpp" />
   </ItemGroup>
@@ -40,7 +41,9 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="headers\DEEPGLASS\MemoryChecker.h" />
     <ClInclude Include="headers\DEEPGLASS\EnumRegistry.h" />
+    <ClInclude Include="headers\DEEPGLASS\FileCollector.h" />
     <ClInclude Include="headers\DEEPGLASS\Filtering.h" />
   </ItemGroup>
   <ItemDefinitionGroup>
