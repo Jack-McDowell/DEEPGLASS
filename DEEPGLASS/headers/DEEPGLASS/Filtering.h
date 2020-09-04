@@ -55,11 +55,33 @@ namespace DEEPGLASS{
 	/*!
 	 * \brief Attempts to find and create an object for the associated file for a given file name
 	 * 
-	 * \details 
+	 * \details Attempts to find the associated directory listing for the given file name. If the file name is a full
+	 *          file path, the associated file will be returned. Otherwise, environment variables will be expanded and
+	 *          common substitutions will be applied, then the directories in %PATH% will be searched for the file.
 	 * 
 	 * \param[in] filename The name of the file to try to find and create an object for
 	 * 
 	 * \return An optional containing a file object for the specified file; nullopt if the file couldn't be found
 	 */
 	std::optional<FileSystem::File> CreateFileObject(_In_ const std::wstring& filename);
+
+	/*!
+	 * \brief Filters the given file names and their associated registry entries into vectors of unsigned files and 
+	 *        files that couldn't be found
+	 * 
+	 * \details This function takes an unordered mapping of file names to vectors of registry values containing the 
+	 *          file name in their data. The file names are passed through CreateFileObject, and if the results are
+	 *          unsigned, the pair of the file name and vector are added to `notsigned`. Alternatively, if the file
+	 *          couldn't be found, the file name and vector are added to `notfound`.
+	 * 
+	 * \param[in]  found     A mapping of file names to vectors of registry values containing the file name in their
+	 *                       data
+	 * \param[out] notsigned A vector of pairs that will receive any pair of file name and vector of registry entries
+	 *                       for files that are not signed
+	 * \param[out] notfound  A vector of pairs that will receive any pair of file name and vector of registry entries
+	 *                       for files that could not be found
+	 */
+	void FilterSigned(_In_ const std::unordered_map<std::wstring, std::vector<Registry::RegistryValue>>& found,
+					  _Out_ std::vector<std::pair<std::wstring, std::vector<Registry::RegistryValue>>>& notsigned,
+					  _Out_ std::vector<std::pair<std::wstring, std::vector<Registry::RegistryValue>>>& notfound);
 };
