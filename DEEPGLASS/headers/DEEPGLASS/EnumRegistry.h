@@ -48,4 +48,19 @@ namespace DEEPGLASS {
 		_In_opt_ const std::function<std::vector<std::wstring>(_In_ const Registry::RegistryValue& value)>& identifier =
 		std::bind(FindReferencedFiles, std::placeholders::_1, IsFiletypePE)
 	);
+
+	/*!
+	 * \brief Scans the registry for PE files, providing a list of unsigned files found in the registry and printing 
+	 *        lists of unsigned files and files referenced but not found to files. 
+	 * 
+	 * \details Uses EnumerateValuesRecursive to identify file paths stored in the data of registry values. Each file
+	 *          path or name is checked to determine whether it likely refers to an executable. Any file or path 
+	 *          identified is then checked. If the file is not found, its name and associated registry values get 
+	 *          written to .\DEEPGLASS-Results\Registry-Missing-Files.txt. Alternatively, if the file is found but
+	 *          unsigned, it is added to `paths`, and both it and its associated registry values get written to
+	 *          .\DEEPGLASS-Results\Registry-Unsigned-Files.txt
+	 * 
+	 * \param[out] paths Any file name or path referring to an unsigned file will be added to this set.
+	 */
+	void RunRegistryChecks(_Out_ std::unordered_set<std::wstring>& paths);
 };

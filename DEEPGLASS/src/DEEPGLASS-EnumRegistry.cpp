@@ -5,6 +5,7 @@
 
 #include <unordered_map>
 #include <string>
+#include <fstream>
 
 #include "util/configurations/Registry.h"
 #include "util/configurations/RegistryValue.h"
@@ -12,6 +13,36 @@
 #include "util/ThreadPool.h"
 
 namespace DEEPGLASS {
+
+	void RunRegistryChecks(_Out_ std::unordered_set<std::wstring>& paths){
+		std::unordered_map<std::wstring, std::vector<Registry::RegistryValue>> found{};
+		std::unordered_set<std::wstring> explored;
+		CriticalSection hFoundGuard{}, hExploredGuard{};
+		DEEPGLASS::EnumerateValuesRecursive(HKEY_LOCAL_MACHINE, found, explored, hFoundGuard, hExploredGuard, true);
+		DEEPGLASS::EnumerateValuesRecursive(HKEY_USERS, found, explored, hFoundGuard, hExploredGuard, true);
+		ThreadPool::GetInstance().Wait();
+
+		std::vector<std::pair<std::wstring, std::vector<Registry::RegistryValue>>> notsigned{};
+		std::vector<std::pair<std::wstring, std::vector<Registry::RegistryValue>>> notfound{};
+		DEEPGLASS::FilterSigned(found, notsigned, notfound);
+
+		std::wofstream missingfile(L".\\DEEPGLASS-Results\\Registry-Missing-Files.txt");
+		for(const auto& pair : notfound){
+			missingfile << L"File " << pair.first << L" not found; referenced by:" << std::endl;
+			for(const auto& value : pair.second){
+				missingfile << "\t" << value.key.GetName() << L": " << value.GetPrintableName() << std::endl;
+			}
+		}
+
+		std::wofstream unsignedfile(L".\\DEEPGLASS-Results\\Registry-Unsigned-Files.txt");
+		for(auto pair : notsigned){
+			unsignedfile << L"File " << pair.first << L" is unsigned; referenced by:" << std::endl;
+			for(auto value : pair.second){
+				unsignedfile << "\t" << value.key.GetName() << L": " << value.GetPrintableName() << std::endl;
+			}
+			paths.emplace(pair.first);
+		}
+	}
 
 	void EnumerateValuesRecursive(
 		_In_ const Registry::RegistryKey& base,

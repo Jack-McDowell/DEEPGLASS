@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -32,6 +32,7 @@
   <ItemGroup>
     <ClCompile Include="src\DEEPGLASS-EnumRegistry.cpp" />
     <ClCompile Include="src\DEEPGLASS-FileCollector.cpp" />
+    <ClCompile Include="src\DEEPGLASS-FilesystemEnum.cpp" />
     <ClCompile Include="src\DEEPGLASS-Filtering.cpp" />
     <ClCompile Include="src\DEEPGLASS.cpp" />
   </ItemGroup>
@@ -41,6 +42,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="headers\DEEPGLASS\FilesystemEnum.h" />
     <ClInclude Include="headers\DEEPGLASS\MemoryChecker.h" />
     <ClInclude Include="headers\DEEPGLASS\EnumRegistry.h" />
     <ClInclude Include="headers\DEEPGLASS\FileCollector.h" />
