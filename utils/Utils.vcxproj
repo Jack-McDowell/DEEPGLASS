@@ -47,13 +47,6 @@
     <ClInclude Include="headers\util\log\LogSink.h" />
     <ClInclude Include="headers\util\log\ServerSink.h" />
     <ClInclude Include="headers\util\log\XMLSink.h" />
-    <ClInclude Include="headers\util\pe\Export_Section.h" />
-    <ClInclude Include="headers\util\pe\Image_Loader.h" />
-    <ClInclude Include="headers\util\pe\Import_Section.h" />
-    <ClInclude Include="headers\util\pe\PE_Image.h" />
-    <ClInclude Include="headers\util\pe\PE_Section.h" />
-    <ClInclude Include="headers\util\pe\Relocation_Section.h" />
-    <ClInclude Include="headers\util\pe\Resource_Section.h" />
     <ClInclude Include="headers\util\processes\PERemover.h" />
     <ClInclude Include="headers\util\processes\ProcessChecker.h" />
     <ClInclude Include="headers\util\processes\ProcessUtils.h" />
@@ -72,9 +65,6 @@
     <ClCompile Include="src\log\DebugSink.cpp" />
     <ClCompile Include="src\log\Log.cpp" />
     <ClCompile Include="src\log\LogLevel.cpp" />
-    <ClCompile Include="src\permissions\permissions.cpp" />
-    <ClCompile Include="src\pe\Image_Loader.cpp" />
-    <ClCompile Include="src\processes\PERemover.cpp" />
     <ClCompile Include="src\processes\ProcessUtils.cpp" />
     <ClCompile Include="src\StringUtils.cpp" />
     <ClCompile Include="src\ThreadPool.cpp" />

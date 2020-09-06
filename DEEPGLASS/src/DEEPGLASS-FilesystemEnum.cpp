@@ -1,3 +1,5 @@
+#include "DEEPGLASS/FilesystemEnum.h"
+
 #include <Windows.h>
 
 #include <unordered_set>
@@ -54,6 +56,8 @@ namespace DEEPGLASS{
 
 	void CheckFolder(_In_ const std::wstring& folder, _In_ const CriticalSection& hGuard,
 					 _Out_ std::unordered_set<std::wstring>& filenames){
+
+		// Use custom directory traversal to drastically speed things up and 
 		WIN32_FIND_DATA ffd{};
 		FindWrapper find{ FindFirstFileW((folder + L"\\*").c_str(), &ffd) };
 		if(find){
@@ -85,20 +89,26 @@ namespace DEEPGLASS{
 		ThreadPool::GetInstance().Wait();
 	}
 
-	void ScanFiles(_In_ std::unordered_set<std::wstring>& files, _Out_ std::unordered_set<std::wstring>& paths){
+	void ScanFiles(_In_ std::unordered_set<std::wstring>& files, _Out_ std::unordered_set<std::wstring>& paths, 
+				   _In_ const std::wstring& path, _In_opt_ bool check){
 		std::vector<Promise<bool>> promises{};
-		std::wofstream unsignedfile(L".\\DEEPGLASS-Results\\Path-Unsigned-Files.txt");
+		std::wofstream unsignedfile(path);
 		CriticalSection hGuard{};
 		for(const auto file : files){
-			promises.emplace_back(
-				ThreadPool::GetInstance().RequestPromise<bool>([file, &hGuard, &unsignedfile, &paths](){
-					if(DEEPGLASS::IsFiletypePE(file) && !FileSystem::File{ file }.GetFileSigned()){
-						paths.emplace(file);
-						unsignedfile << L"File " << file << L" is unsigned" << std::endl;
-					}
-					return true;
-				})
-			);
+			if(check){
+				promises.emplace_back(
+					ThreadPool::GetInstance().RequestPromise<bool>([file, &hGuard, &unsignedfile, &paths](){
+						if(DEEPGLASS::IsFiletypePE(file) && !FileSystem::File{ file }.GetFileSigned()){
+							paths.emplace(file);
+							unsignedfile << L"File " << file << L" is unsigned" << std::endl;
+						}
+						return true;
+					})
+				);
+			} else{
+				paths.emplace(file);
+				unsignedfile << L"File " << file << L" is unsigned" << std::endl;
+			}
 		}
 		for(const auto& promise : promises){
 			promise.GetValue();
@@ -109,15 +119,11 @@ namespace DEEPGLASS{
 		std::unordered_set<std::wstring> files{};
 
 		CheckPath(files);
-		ScanFiles(files, paths);
+		ScanFiles(files, paths, L".\\DEEPGLASS-Results\\Path-Unsigned-Files.txt", true);
 		files.clear();
 
 		CheckWinSxS(files);
-		std::wofstream unsignedfile(L".\\DEEPGLASS-Results\\WinSxS-Unsigned-Files.txt");
-		for(const auto& file : files){
-			paths.emplace(file);
-			unsignedfile << L"File " << file << L" is unsigned" << std::endl;
-		}
+		ScanFiles(files, paths, L".\\DEEPGLASS-Results\\WinSxS-Unsigned-Files.txt", false);
 		files.clear();
 	}
 };

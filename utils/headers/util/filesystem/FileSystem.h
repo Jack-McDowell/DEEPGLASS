@@ -9,7 +9,6 @@
 
 #include "util/log/Loggable.h"
 #include "util/wrappers.hpp"
-#include "util/permissions/permissions.h"
 #include "util/DynamicLinker.h"
 
 #define BUFSIZE 1024
@@ -269,70 +268,6 @@ namespace FileSystem{
 		virtual std::wstring ToString() const;
 
 		/**
-		* Function to get the file owner
-		*
-		* @return an Owner object representing the owner of the file
-		*/
-		std::optional<Permissions::Owner> GetFileOwner() const;
-
-		/**
-		* Function to set a file owner
-		*
-		* @param owner An Owner object representing the new file owner
-		* @return true if the file is now owned by the new user, false otherwise
-		*/
-		bool SetFileOwner(const Permissions::Owner& owner);
-
-		/**
-		* Function to get the permissions a user or group has on a file
-		*
-		* @param owner An Owner object to check permissions for
-		* @return An ACCESS_MASK object
-		*/
-		ACCESS_MASK GetAccessPermissions(const Permissions::Owner& owner);
-
-		/**
-		* Function to get permissions that the everyone group has
-		*
-		* @return the permissions granted to the everyone group
-		*/
-		ACCESS_MASK GetEveryonePermissions();
-
-		/**
-		* Function to set bluespawn's process owner as the owner of the file
-		*
-		* @return true if successful, false otherwise
-		*/
-		bool TakeOwnership();
-
-		/**
-		* Function to grant certain permissions to certain user or group
-		*
-		* @param owner The user or group to grant permissions to
-		* @param amAccess The access to grant to owner
-		*
-		* @return true if the permissions were granted, false otherwise
-		*/
-		bool GrantPermissions(const Permissions::Owner& owner, const ACCESS_MASK& amAccess);
-
-		/**
-		* Function to deny certain permissions to certain user or group
-		*
-		* @param owner The user or group to deny permissions to
-		* @param amAccess The access to deny the owner
-		*
-		* @return true if the permissions were denied, false otherwise
-		*/
-		bool DenyPermissions(const Permissions::Owner& owner, const ACCESS_MASK& amAccess);
-
-		/**
-		* Function to quarantine file
-		*
-		* @return true if the file is quarantined, false otherwise
-		*/
-		bool Quarantine();
-
-		/**
 		* Function to get the creation time of the file
 		*
 		* @return a FILETIME struct containing the creation time of the file. If an error,
@@ -459,42 +394,5 @@ namespace FileSystem{
 		* @return all subfolders in the current folder
 		*/
 		std::vector<Folder> GetSubdirectories(__in_opt int recurDepth = 0);
-
-		/**
-		* Function to get the folder owner
-		*
-		* @return an Owner object representing the owner of the file
-		*/
-		std::optional<Permissions::Owner> GetFolderOwner() const;
-
-		/**
-		* Function to set a folder owner
-		*
-		* @param owner An Owner object representing the new folder owner
-		* @return true if the folder is now owned by the new user, false otherwise
-		*/
-		bool SetFolderOwner(const Permissions::Owner& owner);
-
-		/**
-		* Function to get the permissions a user or group has on a folder
-		*
-		* @param owner An Owner object to check permissions for
-		* @return An ACCESS_MASK object
-		*/
-		ACCESS_MASK GetAccessPermissions(const Permissions::Owner& owner);
-
-		/**
-		* Function to get permissions that the everyone group has
-		*
-		* @return the permissions granted to the everyone group
-		*/
-		ACCESS_MASK GetEveryonePermissions();
-
-		/**
-		* Function to set bluespawn's process owner as the owner of the folder
-		*
-		* @return true if successful, false otherwise
-		*/
-		bool TakeOwnership();
 	};
 }

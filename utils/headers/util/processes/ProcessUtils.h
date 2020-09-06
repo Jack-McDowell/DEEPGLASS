@@ -8,12 +8,14 @@
 #include "util/wrappers.hpp"
 #include "util/dynamiclinker.h"
 
-#include "util/pe/Image_Loader.h"
-
 struct Hook {
 	LPVOID ModificationAddress;
 	LPVOID RedirectionAddress;
 };
+
+DEFINE_FUNCTION(NTSTATUS, NtQueryInformationProcess, __kernel_entry NTAPI, IN HANDLE ProcessHandle,
+				IN PROCESSINFOCLASS ProcessInformationClass, OUT PVOID ProcessInformation, IN ULONG ProcessInnformationLength,
+				OUT PULONG ReturnLength);
 
 bool HookIsOkay(const Hook& hook);
 

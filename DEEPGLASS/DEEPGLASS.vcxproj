@@ -34,6 +34,7 @@
     <ClCompile Include="src\DEEPGLASS-FileCollector.cpp" />
     <ClCompile Include="src\DEEPGLASS-FilesystemEnum.cpp" />
     <ClCompile Include="src\DEEPGLASS-Filtering.cpp" />
+    <ClCompile Include="src\DEEPGLASS-MemoryChecker.cpp" />
     <ClCompile Include="src\DEEPGLASS.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -43,6 +44,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="headers\DEEPGLASS\FilesystemEnum.h" />
+    <ClInclude Include="headers\DEEPGLASS\Internals.h" />
     <ClInclude Include="headers\DEEPGLASS\MemoryChecker.h" />
     <ClInclude Include="headers\DEEPGLASS\EnumRegistry.h" />
     <ClInclude Include="headers\DEEPGLASS\FileCollector.h" />
