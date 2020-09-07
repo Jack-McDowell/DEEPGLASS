@@ -84,7 +84,7 @@ namespace DEEPGLASS{
 			return strings;
 		} else if(value.GetType() == RegistryType::REG_EXPAND_SZ_T || value.GetType() == RegistryType::REG_SZ_T){
 			std::vector<std::wstring> files{};
-			std::wregex regex{ L"[a-zA-Z]:([/\\\\]?[a-zA-Z0-9().% '@_\\-\\^]+)+,?" };
+			std::wregex regex{ L"[a-zA-Z]:([/\\\\]?[a-zA-Z0-9().% #'@_\\-\\^]+)+,?" };
 			auto strs{ std::get<std::wstring>(value.data) };
 			for(auto data : SplitStringW(strs, L";")){
 				if(data.length()){
@@ -94,14 +94,14 @@ namespace DEEPGLASS{
 							if(filename.str().length() >= 1 && *(filename.str().end() - 1) != L',' &&
 							   filter(filename.str())){
 								auto f{ CreateFileObject(filename.str()) };
-								files.emplace_back(ToUpperCaseW(f ? f->GetFilePath() : filename.str()));
+								files.emplace_back(ToLowerCaseW(f ? f->GetFilePath() : filename.str()));
 							}
 						}
 					} else{
 						if(data.find(L' ') == std::wstring::npos || (data.size() >= 4 && *(data.end() - 4) == L'.')){
 							if(filter(data)){
 								auto f{ CreateFileObject(data) };
-								files.emplace_back(ToUpperCaseW(f ? f->GetFilePath() : data));
+								files.emplace_back(ToLowerCaseW(f ? f->GetFilePath() : data));
 							}
 						}
 					}

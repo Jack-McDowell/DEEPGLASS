@@ -78,6 +78,6 @@ namespace DEEPGLASS {
 	 * \param[in]  path  The path to the file to which the paths of unsigned PE files will be written
 	 * \param[in]  check Indicates whether the provided file paths should be assumed to be unsigned PEs or not.
 	 */
-	void ScanFiles(_In_ std::unordered_set<std::wstring>& files, _Out_ std::unordered_set<std::wstring>& paths,
+	void ScanFiles(_In_ const std::unordered_set<std::wstring>& files, _Out_ std::unordered_set<std::wstring>& paths,
 				   _In_ const std::wstring& path, _In_opt_ bool check = true);
 }

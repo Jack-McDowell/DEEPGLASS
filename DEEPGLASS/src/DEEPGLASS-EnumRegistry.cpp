@@ -12,15 +12,22 @@
 #include "util/log/Log.h"
 #include "util/ThreadPool.h"
 
+#include <iostream>
+
 namespace DEEPGLASS {
 
 	void RunRegistryChecks(_Out_ std::unordered_set<std::wstring>& paths){
+		std::cout << "Beginning the registry scan" << std::endl;
+
 		std::unordered_map<std::wstring, std::vector<Registry::RegistryValue>> found{};
 		std::unordered_set<std::wstring> explored;
 		CriticalSection hFoundGuard{}, hExploredGuard{};
 		DEEPGLASS::EnumerateValuesRecursive(HKEY_LOCAL_MACHINE, found, explored, hFoundGuard, hExploredGuard, true);
 		DEEPGLASS::EnumerateValuesRecursive(HKEY_USERS, found, explored, hFoundGuard, hExploredGuard, true);
 		ThreadPool::GetInstance().Wait();
+
+		std::cout << "Gathered all path-like strings from the registry; beginning scans for unsigned PE files." 
+			<< std::endl;
 
 		std::vector<std::pair<std::wstring, std::vector<Registry::RegistryValue>>> notsigned{};
 		std::vector<std::pair<std::wstring, std::vector<Registry::RegistryValue>>> notfound{};

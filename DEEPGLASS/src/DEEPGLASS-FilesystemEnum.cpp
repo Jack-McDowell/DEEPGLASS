@@ -47,7 +47,7 @@ namespace DEEPGLASS{
 				do{
 					if(ffd.cFileName != std::wstring{ L"." } && ffd.cFileName != std::wstring{ L"." } &&
 					   ffd.dwFileAttributes != (DWORD) -1 && !(ffd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)){
-						filenames.emplace(folder + L"\\" + ffd.cFileName);
+						filenames.emplace(ToLowerCaseW(folder + L"\\" + ffd.cFileName));
 					}
 				} while(FindNextFileW(find, &ffd));
 			}
@@ -73,7 +73,7 @@ namespace DEEPGLASS{
 						FileSystem::File file{ name };
 						if(IsPEFile(file) && !file.GetFileSigned()){
 							EnterCriticalSection(hGuard);
-							filenames.emplace(name);
+							filenames.emplace(ToLowerCaseW(name));
 							LeaveCriticalSection(hGuard);
 						}
 					}
@@ -89,7 +89,7 @@ namespace DEEPGLASS{
 		ThreadPool::GetInstance().Wait();
 	}
 
-	void ScanFiles(_In_ std::unordered_set<std::wstring>& files, _Out_ std::unordered_set<std::wstring>& paths, 
+	void ScanFiles(_In_ const std::unordered_set<std::wstring>& files, _Out_ std::unordered_set<std::wstring>& paths, 
 				   _In_ const std::wstring& path, _In_opt_ bool check){
 		std::vector<Promise<bool>> promises{};
 		std::wofstream unsignedfile(path);
@@ -99,14 +99,16 @@ namespace DEEPGLASS{
 				promises.emplace_back(
 					ThreadPool::GetInstance().RequestPromise<bool>([file, &hGuard, &unsignedfile, &paths](){
 						if(DEEPGLASS::IsFiletypePE(file) && !FileSystem::File{ file }.GetFileSigned()){
-							paths.emplace(file);
+							EnterCriticalSection(hGuard);
+							paths.emplace(ToLowerCaseW(file));
 							unsignedfile << L"File " << file << L" is unsigned" << std::endl;
+							LeaveCriticalSection(hGuard);
 						}
 						return true;
 					})
 				);
 			} else{
-				paths.emplace(file);
+				paths.emplace(ToLowerCaseW(file));
 				unsignedfile << L"File " << file << L" is unsigned" << std::endl;
 			}
 		}

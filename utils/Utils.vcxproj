@@ -47,8 +47,6 @@
     <ClInclude Include="headers\util\log\LogSink.h" />
     <ClInclude Include="headers\util\log\ServerSink.h" />
     <ClInclude Include="headers\util\log\XMLSink.h" />
-    <ClInclude Include="headers\util\processes\PERemover.h" />
-    <ClInclude Include="headers\util\processes\ProcessChecker.h" />
     <ClInclude Include="headers\util\processes\ProcessUtils.h" />
     <ClInclude Include="headers\util\Promise.h" />
     <ClInclude Include="headers\util\StringUtils.h" />

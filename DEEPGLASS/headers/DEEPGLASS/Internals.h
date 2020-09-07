@@ -65,7 +65,7 @@ namespace DEEPGLASS::Internals {
 	extern HandleWrapper hEvent1;
 
 	/// \brief An event to be set by the handle reader thread to indicate it is finished. If not triggered
-	///        within 200 ms of hEvent1 being set, the handle reader thread will be killed.
+	///        within 250 ms of hEvent1 being set, the handle reader thread will be killed.
 	extern HandleWrapper hEvent2;
 
 	/// \brief A pointer to the ThreadInfo struct to be used by the handle reader thread
@@ -73,4 +73,29 @@ namespace DEEPGLASS::Internals {
 
 	/// \brief A handle to the handle reader thread
 	extern HANDLE hThread;
+
+	/*!
+	 * \brief Queries the name of the handle pointed to by info's handle, storing the result in info's buf.
+	 *        hEvent1 should be triggered for this function to run, and if hEvent2 is not triggered within
+	 *        250 ms, the thread running this function should be killed. This function should only be used by
+	 *        GetHandleName.
+	 */
+	void QueryName();
+
+	/*!
+	 * \brief Reads the name of a handle in a specified process, returning the name if present. This function is
+	 *        only meant to read the name of a handle to a file.
+	 * 
+	 * \details Reads the name of a specified handle in a specified process by making use of QueryName. Since QueryName
+	 *          uses global resources, GetHandleName should not be called asynchronously with other threads also 
+	 *          calling GetHandleName or QueryName. This function will not configure hEvent1 or hEvent2 prior to using
+	 *          them, so it is the developer's responsibility to ensure they are valid events.
+	 * 
+	 * \param[in] handle The handle value in the specified process, which may be different than the value of the handle
+	 *                   when duplicated to this process.
+	 * \param[in] dwPID  The PID of the process which has the handle in question
+	 * 
+	 * \return The name of the object referenced by the handle, if available; nullopt otherwise.
+	 */
+	std::optional<std::wstring> GetHandleName(_In_ HANDLE handle, _In_ DWORD dwPID);
 }

@@ -2,6 +2,7 @@
 #include "DEEPGLASS/Filtering.h"
 #include "DEEPGLASS/FileCollector.h"
 #include "DEEPGLASS/FilesystemEnum.h"
+#include "DEEPGLASS/MemoryChecker.h"
 
 #include <iostream>
 
@@ -13,6 +14,7 @@ void main(){
 
 		DEEPGLASS::RunRegistryChecks(files);
 		DEEPGLASS::RunFileChecks(files);
+		DEEPGLASS::RunMemoryChecks(files);
 
 		DEEPGLASS::MoveFiles(files);
 	}
