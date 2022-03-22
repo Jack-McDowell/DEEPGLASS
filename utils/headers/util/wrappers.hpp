@@ -22,8 +22,8 @@ public:
 			delete object;
 		} }{}
 
-		operator T() const{ return *ReferenceCounter; }
-		T operator *() const{ return *ReferenceCounter; }
+		operator T() const{ return *ReferenceCounter.get(); }
+		T operator *() const{ return *ReferenceCounter.get(); }
 		T operator ->() const{ return *ReferenceCounter; }
 		T* operator &() const{ return const_cast<T*>(&*ReferenceCounter); }
 		bool operator ==(T object) const{ return *ReferenceCounter == object; }
@@ -31,7 +31,7 @@ public:
 		bool operator !() const{ return !*ReferenceCounter || *ReferenceCounter == BadValue; }
 		operator bool() const{ return !operator!(); }
 		T Release(){ auto tmp = *ReferenceCounter; *ReferenceCounter = *BadValue; return tmp; }
-		T Get() const{ return *ReferenceCounter; }
+		T Get() const{ return *ReferenceCounter.get(); }
 };
 
 class HandleWrapper : public GenericWrapper<HANDLE> {
@@ -251,11 +251,19 @@ public:
 		}
 	}
 
+	void SetValue(T value) const{
+		if(!process){
+			*address = value;
+		} else{
+			WriteProcessMemory(process, address, &value, sizeof(T), nullptr);
+		}
+	}
+
 	T operator *() const{
 		return Dereference();
 	}
-	T** operator &() const{
-		return &(address);
+	T* operator &() const{
+		return (address);
 	}
 	operator T* () const{
 		return (address);
@@ -286,10 +294,10 @@ public:
 		}
 	}
 
-	bool CompareMemory(MemoryWrapper<T> memory) const{
-		auto data1 = Dereference();
-		auto data2 = memory.Dereference();
-		return !memcmp(&data1, &data2, min(memory.MemorySize, MemorySize));
+	bool CompareMemory(MemoryWrapper<T> memory, SIZE_T size = -1) const{
+		auto data1 = ToAllocationWrapper();
+		auto data2 = memory.ToAllocationWrapper();
+		return !memcmp(data1, data2, min(min(size, MemorySize), memory.MemorySize));
 	}
 
 	bool Protect(DWORD protections, SIZE_T size = -1){

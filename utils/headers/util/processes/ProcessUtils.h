@@ -7,6 +7,7 @@
 
 #include "util/wrappers.hpp"
 #include "util/dynamiclinker.h"
+#include "util/filesystem/FileSystem.h"
 
 struct Hook {
 	LPVOID ModificationAddress;
@@ -35,6 +36,8 @@ LPVOID GetModuleAddress(DWORD dwPID, const std::wstring& wsModuleName);
 LPVOID GetModuleAddress(const HandleWrapper& hProcess, const std::wstring& wsModuleName);
 DWORD GetRegionSize(DWORD dwPID, LPVOID lpRegionAddress);
 DWORD GetRegionSize(const HandleWrapper& hProcess, LPVOID lpRegionAddress);
+std::optional<FileSystem::File> GetMappedFile(DWORD dwPID, LPVOID address);
+std::optional<FileSystem::File> GetMappedFile(const HandleWrapper& hProcess, LPVOID address);
 
 namespace Utils::Process {
 	AllocationWrapper ReadProcessMemory(const HandleWrapper& hProcess, LPVOID lpBaseAddress, DWORD dwSize);
