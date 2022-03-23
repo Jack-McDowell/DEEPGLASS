@@ -295,8 +295,9 @@ public:
 	}
 
 	bool CompareMemory(MemoryWrapper<T> memory, SIZE_T size = -1) const{
-		auto data1 = ToAllocationWrapper();
-		auto data2 = memory.ToAllocationWrapper();
+		auto data1 = ToAllocationWrapper(size);
+		auto data2 = memory.ToAllocationWrapper(size);
+		if(!data1 || !data2){ return true; }
 		return !memcmp(data1, data2, min(min(size, MemorySize), memory.MemorySize));
 	}
 
@@ -367,32 +368,22 @@ public:
 
 	AllocationWrapper ToAllocationWrapper(DWORD size = -1UL) const{
 		size = min(size, MemorySize);
-		if(size > 0x8000){
-			AllocationWrapper wrapper{ ::VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE), size,
-				AllocationWrapper::VIRTUAL_ALLOC };
-			if(process){
-				if(ReadProcessMemory(process, address, wrapper, size, nullptr)){
-					return wrapper;
-				} else{
-					return { nullptr, 0 };
-				}
+		if(process){
+			AllocationWrapper wrapper{ nullptr, 0 };
+			if(size > 0x8000){
+				wrapper = { ::VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE), size,
+				    AllocationWrapper::VIRTUAL_ALLOC };
 			} else{
-				MoveMemory(wrapper, address, size);
+				wrapper = { ::HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size), size,
+					AllocationWrapper::HEAP_ALLOC };
+			}
+			if(ReadProcessMemory(process, address, wrapper, size, nullptr)){
 				return wrapper;
+			} else{
+				return { nullptr, 0 };
 			}
 		} else{
-			AllocationWrapper wrapper{ ::HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size), size,
-				AllocationWrapper::HEAP_ALLOC };
-			if(process){
-				if(ReadProcessMemory(process, address, wrapper, size, nullptr)){
-					return wrapper;
-				} else{
-					return { nullptr, 0 };
-				}
-			} else{
-				MoveMemory(wrapper, address, size);
-				return wrapper;
-			}
+			return { address, size, AllocationWrapper::STACK_ALLOC };
 		}
 	}
 };

@@ -10,6 +10,7 @@
 #include <iostream>
 #include <vector>
 #include <fstream>
+#include <set>
 
 #define RETURN_IF(val, ...) \
     if(__VA_ARGS__){        \
@@ -61,44 +62,53 @@ namespace DEEPGLASS{
                   fileNt->FileHeader.NumberOfSections != memNt->FileHeader.NumberOfSections);
         RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Architecture mismatch"),
                   fileNt->FileHeader.Machine != memNt->FileHeader.Machine);
-        RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Data directory mismatch"),
-                  0 != memcmp(&fileNt->OptionalHeader.DataDirectory, &memNt->OptionalHeader.DataDirectory, 
-                              IMAGE_NUMBEROF_DIRECTORY_ENTRIES * sizeof(IMAGE_DATA_DIRECTORY)));
+        bool dataMismatch{ 0 != memcmp(&fileNt->OptionalHeader.DataDirectory, &memNt->OptionalHeader.DataDirectory,
+                              IMAGE_NUMBEROF_DIRECTORY_ENTRIES * sizeof(IMAGE_DATA_DIRECTORY)) };
+        if(dataMismatch){ __debugbreak(); }
+        RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Data directory mismatch"), dataMismatch);
 
         auto cnt{ memNt->FileHeader.NumberOfSections };
         auto offset{ memNt->FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64 ? sizeof(IMAGE_NT_HEADERS64) :
                                                                              sizeof(IMAGE_NT_HEADERS32) };
         auto fileSections{ fileNt.GetOffset(offset).Convert<IMAGE_SECTION_HEADER>() };
         auto memSections{ memNt.GetOffset(offset).Convert<IMAGE_SECTION_HEADER>() };
-        std::vector<std::pair<DWORD, DWORD>> allowedExecutable{};
-        for(auto i = 0; i < cnt + 1; i++){
+
+        std::set<DWORD> allowedExecutable{};
+        for(auto i = 0; i < cnt; i++){
             /* Section headers should be unchanged. */
-            RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Section header mismatch"),
-                      !fileSections.CompareMemory(memSections, sizeof(IMAGE_SECTION_HEADER)));
+            bool mismatch{ !fileSections.CompareMemory(memSections, sizeof(IMAGE_SECTION_HEADER)) };
+            RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Section header mismatch"), mismatch);
             
             /* If the section is executable, record the RVA and size. */
             bool executable{ static_cast<bool>(fileSections->Characteristics & 0x20000000) };
             if(executable){
-                /* Round the size up to the nearest page. */
-                allowedExecutable.emplace_back(
-                    std::make_pair(fileSections->VirtualAddress, (fileSections->SizeOfRawData + 0xFFFUL) & ~0xFFFUL));
+                /* Record the relative page numbers we're allowing to be executable */
+                auto pnBase{ static_cast<DWORD>(fileSections->VirtualAddress >> 12) };
+                for(DWORD i{ 0 }; (i << 12) < fileSections->SizeOfRawData; i++){
+                    allowedExecutable.emplace(pnBase + i);
+                }
             }
             fileSections = fileSections.GetOffset(sizeof(IMAGE_SECTION_HEADER));
             memSections = memSections.GetOffset(sizeof(IMAGE_SECTION_HEADER));
         }
 
-        /* Compare the section characteristics to the page protections. */
+        /* Record the page numbers of the executable pages mapped in the image. */
+        std::set<DWORD> executablePageNumbers{};
         for(auto& section : sections){
             /* If the pages in the region are exectuable... */
             if(section.Protect & 0xF0){
-                auto offset = ULONG_PTR(section.AllocationBase) - ULONG_PTR(memBase.address);
-                bool permitted = false;
-                /* For each section allowed to be executable, check if this section is that region */
-                for(auto& pair : allowedExecutable){
-                    permitted = permitted || (pair.first == offset && pair.second >= section.RegionSize);
+                auto pnBase{ static_cast<DWORD>((reinterpret_cast<ULONG_PTR>(section.BaseAddress) -
+                                                 reinterpret_cast<ULONG_PTR>(section.AllocationBase)) >> 12) };
+                for(DWORD i{ 0 }; (i << 12) < section.RegionSize; i++){
+                    executablePageNumbers.emplace(i + pnBase);
                 }
-                RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Section protection mismatch"), !permitted);
             }
+        }
+
+        /* For each executable page, we want to make sure it's allowed to be executable */
+        for(auto page : executablePageNumbers){
+            bool missing{ allowedExecutable.find(page) == allowedExecutable.end() };
+            RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Section protection mismatch"), missing);
         }
 
         return MAKE_CDATA(Consistent);
@@ -120,6 +130,11 @@ namespace DEEPGLASS{
             entry = fileNt.Convert<IMAGE_NT_HEADERS32>()->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
             offset = sizeof(IMAGE_NT_HEADERS32);
             delta -= fileNt.Convert<IMAGE_NT_HEADERS32>()->OptionalHeader.ImageBase;
+        }
+
+        /* If there are no relocations, return now! */
+        if(!entry.Size){
+            return true;
         }
 
         /* 
@@ -153,7 +168,7 @@ namespace DEEPGLASS{
         auto relocations{ fileBase.GetOffset(offset).Convert<IMAGE_BASE_RELOCATION>() };
 
         /* relocations will refer to the currently process relocation block. The last will be empty. */
-        while(relocations->SizeOfBlock){
+        while(relocations->SizeOfBlock && reinterpret_cast<ULONG_PTR>(relocations.address) < offset + entry.Size){
             if(rvaConverter.find(relocations->VirtualAddress) != rvaConverter.end()){
 
                 /* 
@@ -177,15 +192,16 @@ namespace DEEPGLASS{
                     if(type == IMAGE_REL_BASED_DIR64){
                         blockPtr.GetOffset(entry->offset).Convert<ULONG_PTR>().SetValue(
                             *blockPtr.GetOffset(entry->offset).Convert<ULONG_PTR>() + delta);
-                    } else if(type == IMAGE_REL_BASED_HIGHLOW)
+                    } else if(type == IMAGE_REL_BASED_HIGHLOW){
                         blockPtr.GetOffset(entry->offset).Convert<DWORD>().SetValue(
                             *blockPtr.GetOffset(entry->offset).Convert<DWORD>() + static_cast<DWORD>(delta));
-                    else if(type == IMAGE_REL_BASED_HIGH)
+                    } else if(type == IMAGE_REL_BASED_HIGH){
                         blockPtr.GetOffset(entry->offset).Convert<WORD>().SetValue(
                             *blockPtr.GetOffset(entry->offset).Convert<WORD>() + HIWORD(delta));
-                    else if(type == IMAGE_REL_BASED_LOW)
+                    } else if(type == IMAGE_REL_BASED_LOW){
                         blockPtr.GetOffset(entry->offset).Convert<WORD>().SetValue(
                             *blockPtr.GetOffset(entry->offset).Convert<WORD>() + LOWORD(delta));
+                    }
 
                     entry = entry.GetOffset(sizeof(RELOC_ENTRY));
                 }
@@ -198,7 +214,9 @@ namespace DEEPGLASS{
     }
 
     size_t ComputeDifference(_In_ MemoryWrapper<>& m1, _In_ MemoryWrapper<>& m2, _In_ size_t size){
-        return size - RtlCompareMemory(m1.ToAllocationWrapper(), m2.ToAllocationWrapper(), size);
+        auto buf1{ m1.ToAllocationWrapper(size) };
+        auto buf2{ m2.ToAllocationWrapper(size) };
+        return size - RtlCompareMemory(buf1, buf2, size);
     }
 
     ConsistencyData CheckExecutableConsistency(_In_ MemoryWrapper<>& fileBase, _In_ MemoryWrapper<>& memBase){
@@ -242,6 +260,11 @@ namespace DEEPGLASS{
 
         /* Get a handle on the memory we're interested in */
         MemoryWrapper<> memBase{ lpBaseAddress, dwMapSize, hProcess };
+
+        auto test{ memBase.ToAllocationWrapper(1) };
+        if(!test){
+            return MAKE_CDATA_C(Error, L"Unable to read memory");
+        }
 
         /* 
          * We need to find the file mapped to this region. However, if we've been put in a transaction, we can 
@@ -351,7 +374,7 @@ namespace DEEPGLASS{
         auto dwProcCount{ dwBytesNeeded / sizeof(DWORD) };
         for(int i = 0; i < dwProcCount; i++){
             auto proc{ processes[i] };
-            HandleWrapper process{ OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION, false, proc) };
+            HandleWrapper process{ OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION, false, proc) };
             if(!process){
                 std::wstring img{ GetProcessImage(proc) };
                 std::wcout << L"[-] Unable to open PID " << proc;
