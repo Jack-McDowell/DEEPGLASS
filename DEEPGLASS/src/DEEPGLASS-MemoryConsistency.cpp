@@ -2,6 +2,7 @@
 
 #include <Windows.h>
 #include <Psapi.h>
+#include <stddef.h>
 
 #include "DEEPGLASS/Filtering.h"
 #include "util/processes/ProcessUtils.h"
@@ -54,24 +55,45 @@ namespace DEEPGLASS{
         RETURN_IF(MAKE_CDATA_C(Inconsistent, L"DOS header mismatch"),
                   !fileBase.CompareMemory(memBase, sizeof(IMAGE_DOS_HEADER)));
 
-        auto fileNt = fileBase.GetOffset(fileBase.Convert<IMAGE_DOS_HEADER>()->e_lfanew).Convert<IMAGE_NT_HEADERS>();
-        auto memNt = memBase.GetOffset(memBase.Convert<IMAGE_DOS_HEADER>()->e_lfanew).Convert<IMAGE_NT_HEADERS>();
+        auto fileNt = fileBase.GetOffset(fileBase.Convert<IMAGE_DOS_HEADER>()->e_lfanew).Convert<IMAGE_NT_HEADERS64>();
+        auto memNt = memBase.GetOffset(memBase.Convert<IMAGE_DOS_HEADER>()->e_lfanew).Convert<IMAGE_NT_HEADERS64>();
 
         /* Section count, architecture, and data directories should match exactly. */
         RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Section count mismatch"),
                   fileNt->FileHeader.NumberOfSections != memNt->FileHeader.NumberOfSections);
         RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Architecture mismatch"),
                   fileNt->FileHeader.Machine != memNt->FileHeader.Machine);
-        bool dataMismatch{ 0 != memcmp(&fileNt->OptionalHeader.DataDirectory, &memNt->OptionalHeader.DataDirectory,
-                              IMAGE_NUMBEROF_DIRECTORY_ENTRIES * sizeof(IMAGE_DATA_DIRECTORY)) };
+        
+        auto optHeaderOffset{
+            IMAGE_FILE_MACHINE_AMD64 == fileNt->FileHeader.Machine ?
+                offsetof(IMAGE_NT_HEADERS64, OptionalHeader) :
+                offsetof(IMAGE_NT_HEADERS32, OptionalHeader) };
+        auto dataDirFileOffset{ optHeaderOffset + (fileNt->OptionalHeader.Magic == 0x020B ?
+            offsetof(IMAGE_OPTIONAL_HEADER64, DataDirectory) :
+            offsetof(IMAGE_OPTIONAL_HEADER32, DataDirectory)) };
+        auto dataDirMemOffset{ dataDirFileOffset };
+        auto netDirOffset{ dataDirFileOffset + sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR };
+        if (*fileNt.GetOffset(netDirOffset).GetOffset(offsetof(IMAGE_DATA_DIRECTORY, Size)).Convert<DWORD>()) {
+
+            /* This is, in practice, the .NET metadata directory. */
+            /* Sometimes .NET binaries will replace their own header with a different architecture for reasons. */
+            dataDirMemOffset = optHeaderOffset + (memNt->OptionalHeader.Magic == 0x020B ?
+                offsetof(IMAGE_OPTIONAL_HEADER64, DataDirectory) :
+                offsetof(IMAGE_OPTIONAL_HEADER32, DataDirectory));
+        }
+        bool dataMismatch{ !fileNt.GetOffset(dataDirFileOffset).CompareMemory(
+            memNt.GetOffset(dataDirMemOffset), 
+            sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_NUMBEROF_DIRECTORY_ENTRIES) };
         if(dataMismatch){ __debugbreak(); }
         RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Data directory mismatch"), dataMismatch);
 
         auto cnt{ memNt->FileHeader.NumberOfSections };
-        auto offset{ memNt->FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64 ? sizeof(IMAGE_NT_HEADERS64) :
-                                                                             sizeof(IMAGE_NT_HEADERS32) };
-        auto fileSections{ fileNt.GetOffset(offset).Convert<IMAGE_SECTION_HEADER>() };
-        auto memSections{ memNt.GetOffset(offset).Convert<IMAGE_SECTION_HEADER>() };
+        auto fileSections{ 
+            fileNt.GetOffset(dataDirFileOffset + sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_NUMBEROF_DIRECTORY_ENTRIES)
+                .Convert<IMAGE_SECTION_HEADER>() };
+        auto memSections{ 
+            memNt.GetOffset(dataDirMemOffset + sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_NUMBEROF_DIRECTORY_ENTRIES)
+                .Convert<IMAGE_SECTION_HEADER>() };
 
         std::set<DWORD> allowedExecutable{};
         for(auto i = 0; i < cnt; i++){
@@ -220,8 +242,8 @@ namespace DEEPGLASS{
     }
 
     ConsistencyData CheckExecutableConsistency(_In_ MemoryWrapper<>& fileBase, _In_ MemoryWrapper<>& memBase){
-        auto fileNt = fileBase.GetOffset(fileBase.Convert<IMAGE_DOS_HEADER>()->e_lfanew).Convert<IMAGE_NT_HEADERS>();
-        auto memNt = memBase.GetOffset(memBase.Convert<IMAGE_DOS_HEADER>()->e_lfanew).Convert<IMAGE_NT_HEADERS>();
+        auto fileNt = fileBase.GetOffset(fileBase.Convert<IMAGE_DOS_HEADER>()->e_lfanew).Convert<IMAGE_NT_HEADERS64>();
+        auto memNt = memBase.GetOffset(memBase.Convert<IMAGE_DOS_HEADER>()->e_lfanew).Convert<IMAGE_NT_HEADERS64>();
 
         /* We've already confirmed the headers are consistent. */
         size_t diff = 0;
