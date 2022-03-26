@@ -12,6 +12,8 @@
 #include <vector>
 #include <fstream>
 #include <set>
+#include <map>
+#include <sstream>
 
 #define RETURN_IF(val, ...) \
     if(__VA_ARGS__){        \
@@ -64,30 +66,45 @@ namespace DEEPGLASS{
         RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Architecture mismatch"),
                   fileNt->FileHeader.Machine != memNt->FileHeader.Machine);
         
+        /* Okay, technically this isn't needed as the file header is always the same, but whatever. */
         auto optHeaderOffset{
             IMAGE_FILE_MACHINE_AMD64 == fileNt->FileHeader.Machine ?
                 offsetof(IMAGE_NT_HEADERS64, OptionalHeader) :
                 offsetof(IMAGE_NT_HEADERS32, OptionalHeader) };
+
+        /* It'd be nice if we could handle this another way, but it would seem the optional header's architecture
+         * does NOT necessarily match that of the file header... so we have to check again! */
         auto dataDirFileOffset{ optHeaderOffset + (fileNt->OptionalHeader.Magic == 0x020B ?
             offsetof(IMAGE_OPTIONAL_HEADER64, DataDirectory) :
             offsetof(IMAGE_OPTIONAL_HEADER32, DataDirectory)) };
+
+        /* Assume by default that the data directories will be the same in memory and in the file */
         auto dataDirMemOffset{ dataDirFileOffset };
+
+        /* This is the offset in the file from the start of the NT headers to the .NET directory. */
         auto netDirOffset{ dataDirFileOffset + sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR };
+
+        /* See if the .NET directory has a size. If so, it's a .NET binary. */
         if (*fileNt.GetOffset(netDirOffset).GetOffset(offsetof(IMAGE_DATA_DIRECTORY, Size)).Convert<DWORD>()) {
 
-            /* This is, in practice, the .NET metadata directory. */
-            /* Sometimes .NET binaries will replace their own header with a different architecture for reasons. */
+            /* Sometimes .NET binaries will replace their own header with a different architecture for... reasons. */
+            /* We want to accomodate this to avoid false positives. */
             dataDirMemOffset = optHeaderOffset + (memNt->OptionalHeader.Magic == 0x020B ?
                 offsetof(IMAGE_OPTIONAL_HEADER64, DataDirectory) :
                 offsetof(IMAGE_OPTIONAL_HEADER32, DataDirectory));
         }
+
+        /* If the data directories mismatch, then a fake relocation table could be inserted to build an arbitrary
+         * .text section that bypasses our checks. Technically this doesn't mean there's executable stuff hiding,
+         * but since the data directory should never mismatch, we can check just to be safe. */
         bool dataMismatch{ !fileNt.GetOffset(dataDirFileOffset).CompareMemory(
             memNt.GetOffset(dataDirMemOffset), 
             sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_NUMBEROF_DIRECTORY_ENTRIES) };
-        if(dataMismatch){ __debugbreak(); }
         RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Data directory mismatch"), dataMismatch);
 
         auto cnt{ memNt->FileHeader.NumberOfSections };
+
+        /* Find pointers to the section headers using the address and size of the data directories */
         auto fileSections{ 
             fileNt.GetOffset(dataDirFileOffset + sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_NUMBEROF_DIRECTORY_ENTRIES)
                 .Convert<IMAGE_SECTION_HEADER>() };
@@ -95,7 +112,10 @@ namespace DEEPGLASS{
             memNt.GetOffset(dataDirMemOffset + sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_NUMBEROF_DIRECTORY_ENTRIES)
                 .Convert<IMAGE_SECTION_HEADER>() };
 
+        /* We're going to fill allowedExecutable with page number offsets of pages that are marked as executable in the
+         * appropriate section headers. */
         std::set<DWORD> allowedExecutable{};
+
         for(auto i = 0; i < cnt; i++){
             /* Section headers should be unchanged. */
             bool mismatch{ !fileSections.CompareMemory(memSections, sizeof(IMAGE_SECTION_HEADER)) };
@@ -110,11 +130,13 @@ namespace DEEPGLASS{
                     allowedExecutable.emplace(pnBase + i);
                 }
             }
+
+            /* Next section header, please */
             fileSections = fileSections.GetOffset(sizeof(IMAGE_SECTION_HEADER));
             memSections = memSections.GetOffset(sizeof(IMAGE_SECTION_HEADER));
         }
 
-        /* Record the page numbers of the executable pages mapped in the image. */
+        /* Record the page number offsets of the executable pages mapped in the image. */
         std::set<DWORD> executablePageNumbers{};
         for(auto& section : sections){
             /* If the pages in the region are exectuable... */
@@ -144,7 +166,8 @@ namespace DEEPGLASS{
         auto delta{ reinterpret_cast<ULONG_PTR>(loadBase) };
 
         /* We need to support both architectures here, and the optional header varies in size between architectures. */
-        if(fileNt->FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64){
+        /* But the file header architecture can lie (thanks, .NET), so check the magic bytes instead. */
+        if(fileNt->OptionalHeader.Magic == 0x020B){
             entry = fileNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
             offset = sizeof(IMAGE_NT_HEADERS64);
             delta -= fileNt->OptionalHeader.ImageBase;
@@ -187,10 +210,14 @@ namespace DEEPGLASS{
 
         /* Use rvaConverter to convert the virtual address of the relocation table */
         offset = RVA_TO_RAW(entry.VirtualAddress);
-        auto relocations{ fileBase.GetOffset(offset).Convert<IMAGE_BASE_RELOCATION>() };
+        PIMAGE_BASE_RELOCATION relocations{ fileBase.GetOffset(offset).Convert<IMAGE_BASE_RELOCATION>() };
+        
 
         /* relocations will refer to the currently process relocation block. The last will be empty. */
-        while(relocations->SizeOfBlock && reinterpret_cast<ULONG_PTR>(relocations.address) < offset + entry.Size){
+        while(relocations->SizeOfBlock && 
+              reinterpret_cast<ULONG_PTR>(relocations) - reinterpret_cast<ULONG_PTR>(fileBase.address) 
+                  < offset + entry.Size){
+
             if(rvaConverter.find(relocations->VirtualAddress) != rvaConverter.end()){
 
                 /* 
@@ -201,35 +228,33 @@ namespace DEEPGLASS{
                  * same page is part of the same section and therefore will always have the same difference between
                  * the virtual address and file offset, each individual relocation does not need to be retranslated.
                  */
-                auto blockPtr{ fileBase.GetOffset(RVA_TO_RAW(relocations->VirtualAddress)) };
+                auto blockPtr{ 
+                    reinterpret_cast<ULONG_PTR>(fileBase.address) + RVA_TO_RAW(relocations->VirtualAddress) };
 
                 /* SizeOfBlock refers to the number of bytes in the block. Exclude the struct itself. */
                 auto cnt{ (relocations->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(RELOC_ENTRY) };
-                auto entry{ relocations.GetOffset(sizeof(IMAGE_BASE_RELOCATION)).Convert<RELOC_ENTRY>() };
+                auto entry{ reinterpret_cast<RELOC_ENTRY*>(relocations + 1) };
 
                 for(auto i{ 0ul }; i < cnt; i++){
                     auto type{ entry->type };
 
                     /* Depending on the relocation type, add the delta as appropriate */
                     if(type == IMAGE_REL_BASED_DIR64){
-                        blockPtr.GetOffset(entry->offset).Convert<ULONG_PTR>().SetValue(
-                            *blockPtr.GetOffset(entry->offset).Convert<ULONG_PTR>() + delta);
+                        *reinterpret_cast<DWORD64*>(blockPtr + entry->offset) += delta;
                     } else if(type == IMAGE_REL_BASED_HIGHLOW){
-                        blockPtr.GetOffset(entry->offset).Convert<DWORD>().SetValue(
-                            *blockPtr.GetOffset(entry->offset).Convert<DWORD>() + static_cast<DWORD>(delta));
+                        *reinterpret_cast<DWORD*>(blockPtr + entry->offset) += delta;
                     } else if(type == IMAGE_REL_BASED_HIGH){
-                        blockPtr.GetOffset(entry->offset).Convert<WORD>().SetValue(
-                            *blockPtr.GetOffset(entry->offset).Convert<WORD>() + HIWORD(delta));
+                        *reinterpret_cast<WORD*>(blockPtr + entry->offset) += HIWORD(delta);
                     } else if(type == IMAGE_REL_BASED_LOW){
-                        blockPtr.GetOffset(entry->offset).Convert<WORD>().SetValue(
-                            *blockPtr.GetOffset(entry->offset).Convert<WORD>() + LOWORD(delta));
+                        *reinterpret_cast<WORD*>(blockPtr + entry->offset) += LOWORD(delta);
                     }
 
-                    entry = entry.GetOffset(sizeof(RELOC_ENTRY));
+                    entry++;
                 }
             }
 
-            relocations = relocations.GetOffset(relocations->SizeOfBlock);
+            relocations = reinterpret_cast<PIMAGE_BASE_RELOCATION>(
+                reinterpret_cast<ULONG_PTR>(relocations) + relocations->SizeOfBlock);
         }
 
         return true;
@@ -332,7 +357,7 @@ namespace DEEPGLASS{
         }
 
         /* If we're comparing the memory against its file representation, we need to simulate the relocations. */
-        if(!SimulateRelocations(fileBase, lpBaseAddress)){
+        if (!SimulateRelocations(fileBase, lpBaseAddress)) {
             std::wcout << L"[WARN] Unable to apply relocations for image at " << lpBaseAddress << L" (" << file->GetFilePath() 
                 << L") in PID " << GetProcessId(hProcess) << L". This may result in increased inconsistency." << std::endl;
         }
@@ -380,66 +405,85 @@ namespace DEEPGLASS{
         return consistencies;
     }
 
-    std::vector<ConsistencyData> RunConsistencyChecks(void){
+    std::vector<ConsistencyData> RunConsistencyChecks(void) {
         std::cout << "Checking memory consistency!" << std::endl;
 
         /* Enumerate the PIDs of all processes on the system. */
         std::vector<DWORD> processes(1024);
         DWORD dwBytesNeeded{};
         auto success{ EnumProcesses(processes.data(), 1024 * sizeof(DWORD), &dwBytesNeeded) };
-        if(dwBytesNeeded > 1024 * sizeof(DWORD)){
+        if (dwBytesNeeded > 1024 * sizeof(DWORD)) {
             processes.resize(dwBytesNeeded / sizeof(DWORD));
             success = EnumProcesses(processes.data(), dwBytesNeeded, &dwBytesNeeded);
         }
 
         std::vector<Promise<std::vector<ConsistencyData>>> promises{};
         auto dwProcCount{ dwBytesNeeded / sizeof(DWORD) };
-        for(int i = 0; i < dwProcCount; i++){
+        for (int i = 0; i < dwProcCount; i++) {
             auto proc{ processes[i] };
             HandleWrapper process{ OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION, false, proc) };
-            if(!process){
+            if (!process) {
                 std::wstring img{ GetProcessImage(proc) };
                 std::wcout << L"[-] Unable to open PID " << proc;
-                if(img.length()) std::wcout << L" (" << img << ")";
+                if (img.length()) std::wcout << L" (" << img << ")";
                 std::wcout << std::endl;
             }
 
             /* For each process, we want to asynchronously check its memory consistency. */
-            promises.emplace_back(ThreadPool::GetInstance().RequestPromise<std::vector<ConsistencyData>>([process](){
+            promises.emplace_back(ThreadPool::GetInstance().RequestPromise<std::vector<ConsistencyData>>([process]() {
                 return CheckProcessMemoryConsistency(process);
-            }));
+                }));
         }
 
         /* Await each promised result and combine them into the vector */
         std::vector<ConsistencyData> results{};
-        for(const auto& promise : promises){
+        for (const auto& promise : promises) {
             auto result{ std::move(promise.GetValue()) };
-            if(result){
-                for(auto& consistencyData : *result){
+            if (result) {
+                for (auto& consistencyData : *result) {
                     results.emplace_back(consistencyData);
                 }
             }
         }
 
         std::wofstream output{ L".\\DEEPGLASS-Results\\Inconsistent-Images.txt" };
+        std::map<std::wstring, std::vector<std::wstring>> found{};
         for(auto& result : results){
             if(MapConsistency::Consistent != result){
+
                 auto end{ reinterpret_cast<LPVOID>(reinterpret_cast<SIZE_T>(result.baseAddress) + result.regionSize) };
                 auto image{ GetMappedFile(result.process, result.baseAddress) };
                 auto proc{ GetProcessImage(result.process) };
 
-                output << L"PID " << GetProcessId(result.process);
-                if(proc.length()) output << L" (" << proc << L")";
-                output << L": Image at " << result.baseAddress << L" : " << end << L" ";
+                std::wstringstream procStream{};
+                std::wstringstream imgStream{};
+
+                procStream << L"PID " << GetProcessId(result.process);
+                if(proc.length()) procStream << L" (" << proc << L")";
+                auto procString{ procStream.str() };
+
+                imgStream << L"Image at " << result.baseAddress << L" : " << end << L" ";
                 if(image){
-                    output << L"(" << image->GetFilePath() << L") ";
+                    imgStream << L"(" << image->GetFilePath() << L") ";
                 }
-                if(MapConsistency::BadMap == result) output << L"Bad Map";
-                if(MapConsistency::Inconsistent == result) output << L"Inconsistent With File";
-                if(MapConsistency::NotPE == result) output << L"Mapped File Not a PE";
-                if(MapConsistency::Error == result) output << L"Error";
-                if(result.comment){ output << L" - " << *result.comment; }
-                output << std::endl;
+                if(MapConsistency::BadMap == result) imgStream << L"Bad Map";
+                if(MapConsistency::Inconsistent == result) imgStream << L"Inconsistent With File";
+                if(MapConsistency::NotPE == result) imgStream << L"Mapped File Not a PE";
+                if(MapConsistency::Error == result) imgStream << L"Error";
+                if(result.comment){ imgStream << L" - " << *result.comment; }
+                auto imgString{ imgStream.str() };
+
+                if (found.find(imgString) == found.end()) {
+                    found.emplace(imgString, std::vector<std::wstring>{});
+                }
+                found.at(imgString).push_back(procString);
+            }
+        }
+
+        for (auto& pair : found) {
+            output << pair.first << std::endl;
+            for (auto& proc : pair.second) {
+                output << L"\t" << proc << std::endl;
             }
         }
 
