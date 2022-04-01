@@ -50,7 +50,7 @@
     <ClInclude Include="headers\DEEPGLASS\EnumRegistry.h" />
     <ClInclude Include="headers\DEEPGLASS\FileCollector.h" />
     <ClInclude Include="headers\DEEPGLASS\Filtering.h" />
-    <ClInclude Include="MemoryConsistency.h" />
+    <ClInclude Include="headers\DEEPGLASS\MemoryConsistency.h" />
   </ItemGroup>
   <ItemDefinitionGroup>
     <BuildLog>

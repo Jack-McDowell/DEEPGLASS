@@ -133,7 +133,7 @@ public:
 	    },
 		AllocationSize{ size }{}
 
-	CHAR& operator[](int i) const{
+	CHAR& operator[](size_t i) const{
 		return pointer[i];
 	}
 
@@ -370,7 +370,7 @@ public:
 		size = min(size, MemorySize);
 		if(process){
 			AllocationWrapper wrapper{ nullptr, 0 };
-			if(size > 0x8000){
+			if(size > 0x1000){
 				wrapper = { ::VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE), size,
 				    AllocationWrapper::VIRTUAL_ALLOC };
 			} else{

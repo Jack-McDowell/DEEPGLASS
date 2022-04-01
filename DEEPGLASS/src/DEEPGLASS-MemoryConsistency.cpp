@@ -51,8 +51,7 @@ namespace DEEPGLASS{
     bool ConsistencyData::operator==(MapConsistency consistency) const{ return consistency == this->consistency; }
     bool ConsistencyData::operator!=(MapConsistency consistency) const{ return consistency != this->consistency; }
 
-    ConsistencyData CheckSectionCoherency(_In_ MemoryWrapper<>& fileBase, _In_ MemoryWrapper<>& memBase,
-                                          _In_ std::vector<MEMORY_BASIC_INFORMATION>& sections){
+    ConsistencyData CheckSectionCoherency(_In_ MemoryWrapper<>& fileBase, _In_ MemoryWrapper<>& memBase){
         /* DOS headers should match exactly. */
         RETURN_IF(MAKE_CDATA_C(Inconsistent, L"DOS header mismatch"),
                   !fileBase.CompareMemory(memBase, sizeof(IMAGE_DOS_HEADER)));
@@ -71,6 +70,12 @@ namespace DEEPGLASS{
             IMAGE_FILE_MACHINE_AMD64 == fileNt->FileHeader.Machine ?
                 offsetof(IMAGE_NT_HEADERS64, OptionalHeader) :
                 offsetof(IMAGE_NT_HEADERS32, OptionalHeader) };
+
+        auto imageSizeOffset{ optHeaderOffset + (fileNt->OptionalHeader.Magic == 0x020B ?
+            offsetof(IMAGE_OPTIONAL_HEADER64, SizeOfImage) :
+            offsetof(IMAGE_OPTIONAL_HEADER32, SizeOfImage)) };
+        RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Image Size Mismatch"),
+                  *fileNt.GetOffset(imageSizeOffset).Convert<DWORD>() != memBase.MemorySize);
 
         /* It'd be nice if we could handle this another way, but it would seem the optional header's architecture
          * does NOT necessarily match that of the file header... so we have to check again! */
@@ -102,7 +107,7 @@ namespace DEEPGLASS{
             sizeof(IMAGE_DATA_DIRECTORY) * IMAGE_NUMBEROF_DIRECTORY_ENTRIES) };
         RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Data directory mismatch"), dataMismatch);
 
-        auto cnt{ memNt->FileHeader.NumberOfSections };
+        auto cnt{ fileNt->FileHeader.NumberOfSections };
 
         /* Find pointers to the section headers using the address and size of the data directories */
         auto fileSections{ 
@@ -117,42 +122,22 @@ namespace DEEPGLASS{
         std::set<DWORD> allowedExecutable{};
 
         for(auto i = 0; i < cnt; i++){
-            /* Section headers should be unchanged. */
-            bool mismatch{ !fileSections.CompareMemory(memSections, sizeof(IMAGE_SECTION_HEADER)) };
-            RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Section header mismatch"), mismatch);
-            
-            /* If the section is executable, record the RVA and size. */
-            bool executable{ static_cast<bool>(fileSections->Characteristics & 0x20000000) };
-            if(executable){
-                /* Record the relative page numbers we're allowing to be executable */
-                auto pnBase{ static_cast<DWORD>(fileSections->VirtualAddress >> 12) };
-                for(DWORD i{ 0 }; (i << 12) < fileSections->SizeOfRawData; i++){
-                    allowedExecutable.emplace(pnBase + i);
-                }
-            }
+            auto memHdr{ *memSections };
+            auto fileHdr{ *fileSections };
 
+            /* Section headers should be unchanged (with certain exceptions). */
+            bool sectionHeadersAcceptable{ true };
+            sectionHeadersAcceptable = sectionHeadersAcceptable && memHdr.Characteristics == fileHdr.Characteristics;
+            sectionHeadersAcceptable = sectionHeadersAcceptable && memHdr.VirtualAddress == fileHdr.VirtualAddress;
+            sectionHeadersAcceptable = sectionHeadersAcceptable && memHdr.SizeOfRawData == fileHdr.SizeOfRawData;
+            sectionHeadersAcceptable = sectionHeadersAcceptable && memHdr.Misc.VirtualSize == fileHdr.Misc.VirtualSize;
+            sectionHeadersAcceptable = sectionHeadersAcceptable && 
+                (memHdr.PointerToRawData == fileHdr.PointerToRawData || !fileHdr.SizeOfRawData);
+            RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Section header mismatch"), !sectionHeadersAcceptable);
+            
             /* Next section header, please */
             fileSections = fileSections.GetOffset(sizeof(IMAGE_SECTION_HEADER));
             memSections = memSections.GetOffset(sizeof(IMAGE_SECTION_HEADER));
-        }
-
-        /* Record the page number offsets of the executable pages mapped in the image. */
-        std::set<DWORD> executablePageNumbers{};
-        for(auto& section : sections){
-            /* If the pages in the region are exectuable... */
-            if(section.Protect & 0xF0){
-                auto pnBase{ static_cast<DWORD>((reinterpret_cast<ULONG_PTR>(section.BaseAddress) -
-                                                 reinterpret_cast<ULONG_PTR>(section.AllocationBase)) >> 12) };
-                for(DWORD i{ 0 }; (i << 12) < section.RegionSize; i++){
-                    executablePageNumbers.emplace(i + pnBase);
-                }
-            }
-        }
-
-        /* For each executable page, we want to make sure it's allowed to be executable */
-        for(auto page : executablePageNumbers){
-            bool missing{ allowedExecutable.find(page) == allowedExecutable.end() };
-            RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Section protection mismatch"), missing);
         }
 
         return MAKE_CDATA(Consistent);
@@ -260,42 +245,116 @@ namespace DEEPGLASS{
         return true;
     }
 
-    size_t ComputeDifference(_In_ MemoryWrapper<>& m1, _In_ MemoryWrapper<>& m2, _In_ size_t size){
-        auto buf1{ m1.ToAllocationWrapper(size) };
-        auto buf2{ m2.ToAllocationWrapper(size) };
-        return size - RtlCompareMemory(buf1, buf2, size);
+
+
+    inline size_t ComputeDifferenceSmall(
+        _In_reads_bytes_(size) char* buf1, 
+        _In_reads_bytes_(size) char* buf2, 
+        size_t size) {
+
+        /* size should be <= 0x1000 bytes */
+        /* In my particular case, I expect frequent differences if any at all are present. */
+        size_t res = 0;
+
+        for (size_t i = 0; i < (size & ~0xF); i += 0x8) {
+            uint64_t diff1 = *reinterpret_cast<uint64_t*>(buf1) ^ *reinterpret_cast<uint64_t*>(buf2);
+            if (!diff1) continue;
+
+            /* Bit fiddle to make each byte 1 if they're different and 0 if the same */
+            diff1 = ((diff1 & 0xF0F0F0F0F0F0F0F0ULL) >> 4) | (diff1 & 0x0F0F0F0F0F0F0F0FULL);
+            diff1 = ((diff1 & 0x0C0C0C0C0C0C0C0CULL) >> 2) | (diff1 & 0x0303030303030303ULL);
+            diff1 = ((diff1 & 0x0202020202020202ULL) >> 1) | (diff1 & 0x0101010101010101ULL);
+
+            /* Sum the bytes */
+            diff1 = (diff1 >> 32) + (diff1 & 0xFFFFFFFFULL);
+            diff1 = (diff1 >> 16) + (diff1 & 0xFFFFULL);
+            diff1 = (diff1 >> 8) + (diff1 & 0xFFULL);
+            diff1 = (diff1 >> 4) + (diff1 & 0xFULL);
+
+            res += diff1;
+        }
+
+        for (size_t i = (size & ~0xF); i < size; i++) {
+            res += (buf1[i] != buf2[i]);
+        }
+
+        return res;
     }
 
-    ConsistencyData CheckExecutableConsistency(_In_ MemoryWrapper<>& fileBase, _In_ MemoryWrapper<>& memBase){
+    size_t ComputeDifference(_In_ MemoryWrapper<>& m1, _In_ MemoryWrapper<>& m2, _In_ size_t size) {
+        auto buf1{ m1.ToAllocationWrapper(size) };
+        auto buf2{ m2.ToAllocationWrapper(size) };
+        size_t res = 0;
+
+        /* I expect most pages to be identical, and both buffers should be page aligned if larger than a page */
+        /* memcmp has more optimizations than I'll ever come up with, so I can just use that to determine if
+         * I need to check for differences in the page. */
+        for (size_t pn = 0; pn < (size & ~0xFFF); pn += 0x1000) {
+            if (memcmp(&buf1[pn], &buf2[pn], 0x1000)) {
+                res += ComputeDifferenceSmall(&buf1[pn], &buf2[pn], 0x1000);
+            }
+        }
+
+        return res + ComputeDifferenceSmall(&buf1[size & ~0xFFF], &buf2[size & ~0xFFF], size & 0xFFF);
+    }
+
+    size_t ComputeNonzero(_In_ MemoryWrapper<>& m1, _In_ size_t size) {
+        auto buf{ m1.ToAllocationWrapper(size) };
+        size_t nonzero{ 0 };
+        for (size_t i = 0; i < size; i++) {
+            if (buf[i]) {
+                nonzero += 1;
+            }
+        }
+        return nonzero;
+    }
+
+    ConsistencyData CheckExecutableConsistency(_In_ MemoryWrapper<>& fileBase, _In_ MemoryWrapper<>& memBase,
+        _In_ std::vector<MEMORY_BASIC_INFORMATION>& regions){
+
         auto fileNt = fileBase.GetOffset(fileBase.Convert<IMAGE_DOS_HEADER>()->e_lfanew).Convert<IMAGE_NT_HEADERS64>();
-        auto memNt = memBase.GetOffset(memBase.Convert<IMAGE_DOS_HEADER>()->e_lfanew).Convert<IMAGE_NT_HEADERS64>();
 
         /* We've already confirmed the headers are consistent. */
         size_t diff = 0;
-        auto cnt{ memNt->FileHeader.NumberOfSections };
+        auto cnt{ fileNt->FileHeader.NumberOfSections };
         auto offset{ fileNt->FileHeader.Machine == IMAGE_FILE_MACHINE_AMD64 ? sizeof(IMAGE_NT_HEADERS64) : 
             sizeof(IMAGE_NT_HEADERS32) };
         auto fileSections = fileNt.GetOffset(offset).Convert<IMAGE_SECTION_HEADER>();
-        auto memSections = memNt.GetOffset(offset).Convert<IMAGE_SECTION_HEADER>();
 
-        /* For each section, if it's executable, find the difference in bytes */
-        for(auto i = 0; i < cnt; i++){
-            if(fileSections->Characteristics & 0x2000000){
-                /*
-                 * We're making a potentially flawed design choice here; we're comparing the sections up to their
-                 * SizeOfRawData, which is the number of bytes actually in the section. This almost never is as big as 
-                 * the memory region in which the section has been mapped since the memory region is always rounded up
-                 * to the next page (and this size is the SizeOfRawData). Thus, it's possible that something could be 
-                 * mapped in the 0x1000 - (SizeOfRawData & 0xFFF) leftover bytes... but technically the contents of 
-                 * that memory is undefined. Perhaps it's worth making sure that it's all zeroes, as the implementation
-                 * of section mapping currently does. A job for another time, I suppose.
-                 */
-                diff += ComputeDifference(fileBase.GetOffset(fileSections->PointerToRawData),
-                                          memBase.GetOffset(memSections->VirtualAddress), 
-                                          fileSections->SizeOfRawData);
+        /* This maps RVAs to the associated PE section header. */
+        std::map<DWORD, IMAGE_SECTION_HEADER> rvaConverter{};
+        for (auto i = 0; i < cnt; i++) {
+            for (auto j = fileSections->VirtualAddress; j < fileSections->VirtualAddress + fileSections->SizeOfRawData;
+                j += 0x1000) {
+
+                /* Map the relative virtual address to the associated section header */
+                rvaConverter.emplace(j, *fileSections);
             }
+
+            /* Unlike raw pointers, GetOffset always counts bytes, not instances of the pointee type. */
             fileSections = fileSections.GetOffset(sizeof(IMAGE_SECTION_HEADER));
-            memSections = memSections.GetOffset(sizeof(IMAGE_SECTION_HEADER));
+        }
+
+        /* For each executable region, go through page by page, find the associated section, and compare */
+        for(auto& region : regions){
+            if (region.Protect & 0xF0) {
+                for (DWORD regPageOffset = 0; regPageOffset < region.RegionSize; regPageOffset += 0x1000) {
+                    auto allocOffset{ reinterpret_cast<ULONG_PTR>(region.BaseAddress) - 
+                        reinterpret_cast<ULONG_PTR>(region.AllocationBase) + regPageOffset };
+
+                    RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Executable Memory not in a Section"),
+                        rvaConverter.find(allocOffset) == rvaConverter.end());
+                    auto section{ rvaConverter[allocOffset] };
+
+                    DWORD sectionOffset{ static_cast<DWORD>(allocOffset - section.VirtualAddress) };
+                    DWORD inSection{ min(0x1000, section.SizeOfRawData - sectionOffset) };
+                    DWORD leftover{ 0x1000 - inSection };
+
+                    diff += ComputeDifference(memBase.GetOffset(allocOffset), 
+                        fileBase.GetOffset(section.PointerToRawData + sectionOffset), inSection);
+                    diff += ComputeNonzero(memBase.GetOffset(allocOffset + inSection), leftover);
+                }
+            }
         }
 
         std::wstring diffString{ std::to_wstring(diff) + L" bytes differ." };
@@ -325,6 +384,10 @@ namespace DEEPGLASS{
             return MAKE_CDATA_C(BadMap, L"Potential Doppelganging");
         }
 
+        if (file->GetFileExists() && !file->HasReadAccess()) {
+            return MAKE_CDATA_C(Error, L"Unable to read file");
+        }
+
         if(!IsPEFile(*file)){
             /* If the memory contains a PE but the file does, that's a sign of process herpaderping. */
             /* If the memory isn't a PE, then we shouldn't have anything executing out of it. */
@@ -351,7 +414,7 @@ namespace DEEPGLASS{
 
         /* Go through the file and memory, and make sure the page protections haven't been changed. */
         MemoryWrapper<> fileBase(fileContents, fileContents.GetSize());
-        auto sectionCoherency{ CheckSectionCoherency(fileBase, memBase, sections) };
+        auto sectionCoherency{ CheckSectionCoherency(fileBase, memBase) };
         if(sectionCoherency != MapConsistency::Consistent){
             return sectionCoherency;
         }
@@ -363,7 +426,7 @@ namespace DEEPGLASS{
         }
 
         /* Make sure the executable sections are consistent with the file now. */
-        return CheckExecutableConsistency(fileBase, memBase);
+        return CheckExecutableConsistency(fileBase, memBase, sections);
     }
 
     std::vector<ConsistencyData> CheckProcessMemoryConsistency(_In_ const HandleWrapper& hProcess){
@@ -388,6 +451,7 @@ namespace DEEPGLASS{
                     /* The size of the previous region is the difference between its start address and this address */
                     auto size = 
                         reinterpret_cast<ULONG_PTR>(memory.BaseAddress) - reinterpret_cast<ULONG_PTR>(regionBase);
+
                     /* Check the region to ensure it's consistent. */
                     consistencies.emplace_back(CheckMappedConsistency(hProcess, regionBase, size));
                     /* Now that we finished off that region, we're no longer in a region we care about */
@@ -460,11 +524,14 @@ namespace DEEPGLASS{
 
                 procStream << L"PID " << GetProcessId(result.process);
                 if(proc.length()) procStream << L" (" << proc << L")";
+                procStream << L" at " << result.baseAddress << L" : " << end;
                 auto procString{ procStream.str() };
 
-                imgStream << L"Image at " << result.baseAddress << L" : " << end << L" ";
                 if(image){
-                    imgStream << L"(" << image->GetFilePath() << L") ";
+                    imgStream << image->GetFilePath() << L": ";
+                }
+                else {
+                    imgStream << "Unknown Doppelgang: ";
                 }
                 if(MapConsistency::BadMap == result) imgStream << L"Bad Map";
                 if(MapConsistency::Inconsistent == result) imgStream << L"Inconsistent With File";

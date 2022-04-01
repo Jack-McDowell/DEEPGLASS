@@ -215,7 +215,7 @@ namespace FileSystem{
                     bReadAccess = true;
                 } else{
                     LOG_ERROR("Unable to create a file handle for file " << FilePath << " (NTSTATUS " << Status << ")");
-                    bFileExists = true;
+                    bFileExists = FileSystem::CheckFileExists(FilePath);
                     bWriteAccess = false;
                     bReadAccess = false;
                 }
@@ -263,7 +263,7 @@ namespace FileSystem{
                 bReadAccess = true;
             } else{
                 LOG_VERBOSE(2, "File " << FilePath << " failed to open with error " << GetLastError());
-                bFileExists = false;
+                bFileExists = FileSystem::CheckFileExists(FilePath);
                 bWriteAccess = false;
                 bReadAccess = false;
             }

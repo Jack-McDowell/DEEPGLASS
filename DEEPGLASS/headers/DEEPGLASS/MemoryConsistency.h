@@ -52,19 +52,18 @@ namespace DEEPGLASS{
      * \brief Ensures the in-memory sections are coherent with those listed in the file. 
      * 
      * \details For a section to be coherent, it must meet the following requirements:
-     *            1. If the memory region is executable, the section header must specify that the section is executable
+     *            1. The file headers must match (excepting archtecture in the case of WoW64 .NET)
      *            2. The memory region must be no larger than the section header specifies
-     *            3. The in-memory section headers must match the in-file section headers exactly
+     *            3. The in-memory section headers must match the in-file section headers exactly, except for the 
+     *               AddressOfRawData field in the case that the SizeOfRawData field is zero.
      * 
-     * \param[in] fileBase A memory wrapper pointing to the base of the PE as stored in the file (sections not expanded)
-     * \param[in] memBase A memory wrapper pointing to the base of the PE as stored in memory. May be inter-process.
-     * \param[in] sections A vector of MEMORY_BASIC_INFORMATION objects for all memory regions the PE occupies.
+     * \param fileBase A memory wrapper pointing to the base of the PE as stored in the file (sections not expanded)
+     * \param memBase A memory wrapper pointing to the base of the PE as stored in memory. May be inter-process.
      * 
      * \return A map consistency enum holding MapConsistency::Consistent if all sections are coherent, or 
      *         MapConsistency::Inconsistent if at least one section is not coherent.
      */
-    ConsistencyData CheckSectionCoherency(_In_ MemoryWrapper<>& fileBase, _In_ MemoryWrapper<>& memBase,
-                                           _In_ std::vector<MEMORY_BASIC_INFORMATION>& sections);
+    ConsistencyData CheckSectionCoherency(_In_ MemoryWrapper<>& fileBase, _In_ MemoryWrapper<>& memBase);
 
     /*!
      * \brief Applies relocations to the file representation of the PE in question.
@@ -96,11 +95,13 @@ namespace DEEPGLASS{
      * \param fileBase A memory wrapper pointing to the base of the PE as stored in the file (sections not expanded).
      *        Note that SimulateRelocations should be called on fileBase first.
      * \param memBase A memory wrapper pointing to the base of the PE as stored in memory. May be inter-process.
+     * \param sections A vector of MEMORY_BASIC_INFORMATION objects for all memory regions the PE occupies.
      * 
      * \return A map consistency enum holding MapConsistency::Consistent if all executable sections are consistent, or 
      *         MapConsistency::Inconsistent if at least 0x500 bytes differ.
      */
-    ConsistencyData CheckExecutableConsistency(_In_ MemoryWrapper<>& fileBase, _In_ MemoryWrapper<>& memBase);
+    ConsistencyData CheckExecutableConsistency(_In_ MemoryWrapper<>& fileBase, _In_ MemoryWrapper<>& memBase,
+        _In_ std::vector<MEMORY_BASIC_INFORMATION>& sections);
 
     /*!
      * \brief Checks if a region in memory is consistent with the file from which it is mapped. Note that this isn't
