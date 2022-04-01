@@ -119,11 +119,43 @@ std::wstring GetProcessCommandline(DWORD dwPID){
     }
 }
 
+bool driveTranslationInitialized{ false };
+std::map<std::wstring, std::wstring> driveTranslation{};
+
+void InitializeDriveTranslation(){
+    std::vector<WCHAR> drives(512);
+    if(GetLogicalDriveStringsW(512, drives.data())){
+        WCHAR* driveletter{ drives.data() };
+        WCHAR path[3]{ L"?:" };
+        while(*driveletter){
+            *path = *driveletter;
+            std::vector<WCHAR> prefix(MAX_PATH);
+            if(QueryDosDeviceW(path, prefix.data(), MAX_PATH)){
+                driveTranslation.emplace(prefix.data(), path);
+            }
+            while(*++driveletter);
+            driveletter++;
+        }
+    }
+}
+
 std::wstring GetProcessImage(const HandleWrapper& process){
     if(process){
         std::vector<WCHAR> name(512);
         DWORD dwSize{ 512 };
         if(GetProcessImageFileNameW(process, name.data(), dwSize)){
+            if(!driveTranslationInitialized){
+                InitializeDriveTranslation();
+            }
+
+            std::wstring path{ name.data() };
+            for(const auto& pair : driveTranslation){
+                if(path.substr(0, pair.first.size()) == pair.first){
+                    auto dospath{ ToLowerCaseW(pair.second + path.substr(pair.first.size())) };
+                    return dospath;
+                }
+            }
+
             return name.data();
         } else{
             LOG_WARNING("Unable to get image path of process - " << SYSTEM_ERROR);
@@ -277,7 +309,19 @@ std::optional<FileSystem::File> GetMappedFile(const HandleWrapper& hProcess, LPV
         return std::nullopt;
     }
 
-    return FileSystem::File(std::wstring{ filename.data(), len });
+    if(!driveTranslationInitialized){
+        InitializeDriveTranslation();
+    }
+
+    std::wstring path{ filename.data(), len };
+    for(const auto& pair : driveTranslation){
+        if(path.substr(0, pair.first.size()) == pair.first){
+            auto dospath{ ToLowerCaseW(pair.second + path.substr(pair.first.size())) };
+            return FileSystem::File(dospath);
+        }
+    }
+
+    return FileSystem::File(path);
 }
 
 namespace Utils::Process{

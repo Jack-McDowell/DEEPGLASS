@@ -197,7 +197,7 @@ namespace FileSystem{
                                        nullptr);
             NTSTATUS Status{ Linker::NtCreateFile(
                 &hFile, GENERIC_READ | GENERIC_WRITE, &attributes, &IoStatus, nullptr, FILE_ATTRIBUTE_NORMAL,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN, FILE_SEQUENTIAL_ONLY, nullptr, 0) };
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN, FILE_RANDOM_ACCESS, nullptr, 0) };
             if(NT_SUCCESS(Status)){
                 this->hFile = hFile;
                 bFileExists = true;
@@ -207,7 +207,7 @@ namespace FileSystem{
                 Status = Linker::NtCreateFile(&hFile, GENERIC_READ, &attributes, &IoStatus, nullptr,
                                               FILE_ATTRIBUTE_NORMAL,
                                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, FILE_OPEN,
-                                              FILE_SEQUENTIAL_ONLY, nullptr, 0);
+                                              FILE_RANDOM_ACCESS, nullptr, 0);
                 if(NT_SUCCESS(Status)){
                     this->hFile = hFile;
                     bFileExists = true;
@@ -215,7 +215,7 @@ namespace FileSystem{
                     bReadAccess = true;
                 } else{
                     LOG_ERROR("Unable to create a file handle for file " << FilePath << " (NTSTATUS " << Status << ")");
-                    bFileExists = true;
+                    bFileExists = FileSystem::CheckFileExists(FilePath);
                     bWriteAccess = false;
                     bReadAccess = false;
                 }
@@ -228,7 +228,7 @@ namespace FileSystem{
         } else{
             hFile = CreateFileW(FilePath.c_str(), GENERIC_READ | GENERIC_WRITE,
                                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                                FILE_FLAG_SEQUENTIAL_SCAN | FILE_ATTRIBUTE_NORMAL, nullptr);
+                                FILE_FLAG_RANDOM_ACCESS | FILE_ATTRIBUTE_NORMAL, nullptr);
             if(!hFile && GetLastError() == ERROR_FILE_NOT_FOUND){
                 LOG_VERBOSE(2, "Couldn't open file, file doesn't exist " << FilePath << ".");
                 bFileExists = false;
@@ -238,7 +238,7 @@ namespace FileSystem{
                 bWriteAccess = false;
                 hFile = CreateFileW(FilePath.c_str(), GENERIC_READ,
                                     FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                                    FILE_FLAG_SEQUENTIAL_SCAN | FILE_ATTRIBUTE_NORMAL, nullptr);
+                                    FILE_FLAG_RANDOM_ACCESS | FILE_ATTRIBUTE_NORMAL, nullptr);
                 if(!hFile && GetLastError() == ERROR_SHARING_VIOLATION){
                     LOG_VERBOSE(2, "Couldn't open file, sharing violation " << FilePath << ".");
                     bFileExists = true;
@@ -263,7 +263,7 @@ namespace FileSystem{
                 bReadAccess = true;
             } else{
                 LOG_VERBOSE(2, "File " << FilePath << " failed to open with error " << GetLastError());
-                bFileExists = false;
+                bFileExists = FileSystem::CheckFileExists(FilePath);
                 bWriteAccess = false;
                 bReadAccess = false;
             }
@@ -387,8 +387,7 @@ namespace FileSystem{
         return true;
     }
 
-    AllocationWrapper
-        File::Read(__in_opt unsigned long amount, __in_opt long offset, __out_opt PDWORD amountRead) const{
+    AllocationWrapper File::Read(__in_opt unsigned long amount, __in_opt long offset, __out_opt PDWORD amountRead) const{
         if(amount == -1){
             amount = GetFileSize();
         }
