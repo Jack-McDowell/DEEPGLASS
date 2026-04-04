@@ -15,10 +15,10 @@ void main(){
 
         DEEPGLASS::RunConsistencyChecks();
 
-        DEEPGLASS::RunRegistryChecks(files);
-        DEEPGLASS::RunFileChecks(files);
-        DEEPGLASS::RunMemoryChecks(files);
+        //DEEPGLASS::RunRegistryChecks(files);
+        //DEEPGLASS::RunFileChecks(files);
+        //DEEPGLASS::RunMemoryChecks(files);
 
-        DEEPGLASS::MoveFiles(files);
+        //DEEPGLASS::MoveFiles(files);
     }
 }
