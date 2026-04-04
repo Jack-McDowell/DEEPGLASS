@@ -74,8 +74,8 @@ namespace DEEPGLASS{
         auto imageSizeOffset{ optHeaderOffset + (fileNt->OptionalHeader.Magic == 0x020B ?
             offsetof(IMAGE_OPTIONAL_HEADER64, SizeOfImage) :
             offsetof(IMAGE_OPTIONAL_HEADER32, SizeOfImage)) };
-        RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Image Size Mismatch"),
-                  *fileNt.GetOffset(imageSizeOffset).Convert<DWORD>() != memBase.MemorySize);
+        //RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Image Size Mismatch"),
+        //          *fileNt.GetOffset(imageSizeOffset).Convert<DWORD>() != memBase.MemorySize);
 
         /* It'd be nice if we could handle this another way, but it would seem the optional header's architecture
          * does NOT necessarily match that of the file header... so we have to check again! */
@@ -324,7 +324,8 @@ namespace DEEPGLASS{
         /* This maps RVAs to the associated PE section header. */
         std::map<DWORD, IMAGE_SECTION_HEADER> rvaConverter{};
         for (auto i = 0; i < cnt; i++) {
-            for (auto j = fileSections->VirtualAddress; j < fileSections->VirtualAddress + fileSections->SizeOfRawData;
+            for (auto j = fileSections->VirtualAddress; 
+                j < fileSections->VirtualAddress + fileSections->Misc.VirtualSize;
                 j += 0x1000) {
 
                 /* Map the relative virtual address to the associated section header */
@@ -335,6 +336,12 @@ namespace DEEPGLASS{
             fileSections = fileSections.GetOffset(sizeof(IMAGE_SECTION_HEADER));
         }
 
+        std::set<DWORD> retpolinePageRvas;
+        auto& loadConfigRef{ fileNt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG] };
+        if (loadConfigRef.Size && loadConfigRef.VirtualAddress) {
+            retpolinePageRvas.insert(fileNt->OptionalHeader.SizeOfImage);
+        }
+
         /* For each executable region, go through page by page, find the associated section, and compare */
         for(auto& region : regions){
             if (region.Protect & 0xF0) {
@@ -342,17 +349,26 @@ namespace DEEPGLASS{
                     auto allocOffset{ reinterpret_cast<ULONG_PTR>(region.BaseAddress) - 
                         reinterpret_cast<ULONG_PTR>(region.AllocationBase) + regPageOffset };
 
-                    RETURN_IF(MAKE_CDATA_C(Inconsistent, L"Executable Memory not in a Section"),
-                        rvaConverter.find(allocOffset) == rvaConverter.end());
+                    if (retpolinePageRvas.find(allocOffset) != retpolinePageRvas.end()) {
+                        continue;
+                    }
+
+                    if (rvaConverter.find(allocOffset) == rvaConverter.end()) {
+                        return MAKE_CDATA_C(Inconsistent, L"Executable Memory not in a Section");
+                    }
                     auto section{ rvaConverter[allocOffset] };
 
                     DWORD sectionOffset{ static_cast<DWORD>(allocOffset - section.VirtualAddress) };
-                    DWORD inSection{ min(0x1000, section.SizeOfRawData - sectionOffset) };
+                    DWORD inSection{ min(0x1000, max(sectionOffset, section.SizeOfRawData) - sectionOffset) };
                     DWORD leftover{ 0x1000 - inSection };
 
-                    diff += ComputeDifference(memBase.GetOffset(allocOffset), 
+                    DWORD thisDiff = 0;
+                    thisDiff += ComputeDifference(memBase.GetOffset(allocOffset), 
                         fileBase.GetOffset(section.PointerToRawData + sectionOffset), inSection);
-                    diff += ComputeNonzero(memBase.GetOffset(allocOffset + inSection), leftover);
+                    thisDiff += ComputeNonzero(memBase.GetOffset(allocOffset + inSection), leftover);
+                    if (thisDiff) {
+                        diff += thisDiff;
+                    }
                 }
             }
         }
@@ -476,13 +492,13 @@ namespace DEEPGLASS{
         std::vector<DWORD> processes(1024);
         DWORD dwBytesNeeded{};
         auto success{ EnumProcesses(processes.data(), 1024 * sizeof(DWORD), &dwBytesNeeded) };
+        processes.resize(dwBytesNeeded / sizeof(DWORD));
         if (dwBytesNeeded > 1024 * sizeof(DWORD)) {
-            processes.resize(dwBytesNeeded / sizeof(DWORD));
             success = EnumProcesses(processes.data(), dwBytesNeeded, &dwBytesNeeded);
         }
 
         std::vector<Promise<std::vector<ConsistencyData>>> promises{};
-        auto dwProcCount{ dwBytesNeeded / sizeof(DWORD) };
+        auto dwProcCount{ processes.size() };
         for (int i = 0; i < dwProcCount; i++) {
             auto proc{ processes[i] };
             HandleWrapper process{ OpenProcess(PROCESS_VM_READ | PROCESS_QUERY_INFORMATION | PROCESS_VM_OPERATION, false, proc) };
